@@ -1,79 +1,145 @@
-import yfinance as yf
 import requests
+import pandas as pd
+import yfinance as yf
+import concurrent.futures
 import time
 
-# --- AYARLAR (Otomatik Dolduruldu) ---
+# --- AYARLAR ---
 TOKEN = "8201264694:AAG_E7j_RvaCCX0WlMokfxgTQvpNvBmchYc"
 ID = "1123565558"
 
-# BIST 30 ve Popüler Hisseler Listesi (Genişletilmiş)
-PORTFOY = [
-    "THYAO.IS", "EREGL.IS", "TUPRS.IS", "KCHOL.IS", "SISE.IS", 
-    "ASELS.IS", "BIMAS.IS", "AKBNK.IS", "YKBNK.IS", "GARAN.IS",
-    "SAHOL.IS", "FROTO.IS", "TOASO.IS", "PETKM.IS", "TCELL.IS",
-    "TTKOM.IS", "HEKTS.IS", "SASA.IS", "KOZAL.IS", "KRDMD.IS",
-    "ENKAI.IS", "ISCTR.IS", "MGROS.IS", "PGSUS.IS", "ALARK.IS",
-    "ODAS.IS", "EKGYO.IS", "VESTL.IS", "ARCLK.IS", "SOKM.IS",
-    "ASTOR.IS", "KONTR.IS", "GUBRF.IS", "OYAKC.IS", "DOHOL.IS"
-]
-
 def mesaj_gonder(text):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    # Mesaj çok uzunsa parça parça gitmesi için try-except
+    # Telegram mesaj limiti 4096 karakterdir, uzunsa parça parça atalım
+    if len(text) > 4000:
+        for i in range(0, len(text), 4000):
+            sub_text = text[i:i+4000]
+            requests.post(url, json={"chat_id": ID, "text": sub_text, "parse_mode": "Markdown"})
+    else:
+        requests.post(url, json={"chat_id": ID, "text": text, "parse_mode": "Markdown"})
+
+def tum_hisseleri_getir():
+    # TradingView altyapısından BIST'teki tüm hisseleri çeker (600+)
+    url = "https://scanner.tradingview.com/turkey/scan"
+    payload = {
+        "filter": [{"left": "type", "operation": "equal", "right": "stock"}],
+        "options": {"lang": "tr"},
+        "symbols": {"query": {"types": []}},
+        "columns": ["name", "close", "volume", "type"],
+        "sort": {"sortBy": "volume", "sortOrder": "desc"},
+        "range": [0, 600] # İlk 600 hisse (Hacme göre sıralı)
+    }
     try:
-        payload = {"chat_id": ID, "text": text, "parse_mode": "Markdown"}
-        requests.post(url, json=payload)
+        response = requests.post(url, json=payload).json()
+        hisseler = [f"{row['d'][0]}.IS" for row in response['data']]
+        return hisseler
     except Exception as e:
-        print(f"Mesaj gönderme hatası: {e}")
+        print(f"Hisse listesi çekilemedi: {e}")
+        # Yedek liste (Eğer API çalışmazsa BIST 30'a döner)
+        return ["THYAO.IS", "EREGL.IS", "GARAN.IS", "AKBNK.IS", "SISE.IS"]
 
-def analyze_and_report():
-    print("Analiz başlıyor, lütfen bekleyin...")
-    
-    # Rapor başlığı
-    full_report = "📢 **GÜNLÜK GENİŞ BORSA TARAMASI** 📢\n\n"
-    full_report += "Graham Formülü ile 'Ucuz' (AL) Sinyali Verenler:\n"
-    full_report += "-----------------------------------\n"
-    
-    ucuz_hisse_bulundu = False
+def williams_r_hesapla(df, period=14):
+    # Williams %R Formülü: (Highest High - Close) / (Highest High - Lowest Low) * -100
+    highest_high = df['High'].rolling(window=period).max()
+    lowest_low = df['Low'].rolling(window=period).min()
+    wr = -100 * ((highest_high - df['Close']) / (highest_high - lowest_low))
+    return wr.iloc[-1]
 
-    for symbol in PORTFOY:
-        try:
-            # Yahoo Finance bazen çok hızlı istek atınca engeller, 1 sn uyutalım
-            time.sleep(0.5) 
+def hisse_analiz_et(symbol):
+    try:
+        stock = yf.Ticker(symbol)
+        
+        # 1. TEMEL ANALİZ (Graham Değerlemesi)
+        # Verileri hızlı çekmek için 'fast_info' kullanalım (Daha hızlıdır)
+        info = stock.info
+        
+        fiyat = info.get('currentPrice', 0)
+        eps = info.get('trailingEps', 0)
+        
+        # Eğer kar etmiyorsa (EPS negatifse) veya fiyat yoksa geç
+        if eps is None or eps <= 0 or fiyat is None or fiyat == 0:
+            return None
+
+        # Graham Formülü: V = EPS * (8.5 + 2g) -> g=15 aldık
+        adil_deger = eps * (8.5 + 2 * 15)
+        
+        # Potansiyel hesabı (Ne kadar iskontolu?)
+        potansiyel = ((adil_deger - fiyat) / fiyat) * 100
+        
+        # KRİTER 1: En az %30 potansiyel (Ucuzluk) olsun
+        if potansiyel < 30:
+            return None
+
+        # 2. TEKNİK ANALİZ (Williams %R)
+        # Son 1 aylık veriyi çekelim (Günlük)
+        hist = stock.history(period="1mo")
+        if len(hist) < 15:
+            return None
             
-            stock = yf.Ticker(symbol)
-            info = stock.info
-            
-            fiyat = info.get('currentPrice', 0)
-            eps = info.get('trailingEps', 0)
-            
-            # Değerleme (Graham Mantığı: V = EPS * (8.5 + 2g))
-            # Büyüme (g) beklentisini %15 standart alıyoruz.
-            if eps > 0 and fiyat > 0:
-                fair_value = eps * (8.5 + 2 * 15)
-                potansiyel = ((fair_value - fiyat) / fiyat) * 100
-                
-                # Sadece POTANSİYELİ YÜKSEK (%30 üzeri) olanları rapora ekle
-                # Böylece yüzlerce satır çöp veri gelmez, sadece fırsatlar gelir.
-                if potansiyel > 30:
-                    ucuz_hisse_bulundu = True
-                    full_report += f"✅ *{symbol.replace('.IS', '')}*\n"
-                    full_report += f"Fiyat: {fiyat} TL | Adil Değer: {fair_value:.1f} TL\n"
-                    full_report += f"🚀 Potansiyel: %{potansiyel:.0f} (UCUZ)\n"
-                    full_report += "------------------\n"
-                    
-        except Exception as e:
-            print(f"{symbol} hatası: {e}")
-            continue
+        w_r = williams_r_hesapla(hist)
+        
+        # KRİTER 2: Williams %R < -80 (Aşırı Satım / Dip Bölgesi)
+        # -80 ile -100 arası "DİP" demektir.
+        if w_r > -80: 
+            return None
 
-    if not ucuz_hisse_bulundu:
-        full_report += "Bu listede şu an aşırı ucuz kalmış hisse bulunamadı.\n"
+        # Tüm filtreleri geçtiyse raporla
+        return {
+            "symbol": symbol.replace(".IS", ""),
+            "fiyat": fiyat,
+            "adil_deger": adil_deger,
+            "potansiyel": potansiyel,
+            "williams": w_r
+        }
 
-    full_report += "\n⚠️ _Yatırım tavsiyesi değildir. Robotik hesaplamadır._"
+    except Exception as e:
+        return None
+
+def main():
+    print("Hisseler çekiliyor...")
+    hisse_listesi = tum_hisseleri_getir()
+    print(f"Toplam {len(hisse_listesi)} hisse taramaya başlıyor...")
     
-    # Telegram'a at
-    mesaj_gonder(full_report)
-    print("Rapor gönderildi.")
+    rapor = "💎 **KELEPİR & DİPTEKİ HİSSELER** 💎\n"
+    rapor += "_Kriterler: Graham'a göre ucuz VE Williams %R < -80 (Dip)_ \n"
+    rapor += "-----------------------------------\n"
+    
+    bulunanlar = []
+
+    # MULTITHREADING (Hızlandırma)
+    # 20 işçi (thread) aynı anda çalışacak.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        results = executor.map(hisse_analiz_et, hisse_listesi)
+        
+        for result in results:
+            if result:
+                bulunanlar.append(result)
+
+    # Sonuçları Potansiyele göre sırala (En ucuz en üstte)
+    bulunanlar.sort(key=lambda x: x['potansiyel'], reverse=True)
+
+    if not bulunanlar:
+        rapor += "Bu kriterlere uyan hisse bulunamadı."
+    else:
+        # Telegram mesajı çok şişmesin diye ilk 20 tanesini yazalım
+        count = 0
+        for h in bulunanlar:
+            if count >= 20: break
+            
+            ikon = "🟢"
+            # Williams değeri -90 altındaysa "Çok Dip" demektir
+            w_durum = "Dipte" if h['williams'] > -90 else "AŞIRI DİPTE 🔥"
+            
+            rapor += f"🎯 *{h['symbol']}* ({h['fiyat']} TL)\n"
+            rapor += f"📊 Adil Değer: {h['adil_deger']:.1f} TL (Primi: %{h['potansiyel']:.0f})\n"
+            rapor += f"📉 Williams %R: {h['williams']:.1f} ({w_durum})\n"
+            rapor += "------------------\n"
+            count += 1
+            
+        rapor += f"\n_Toplam {len(hisse_listesi)} hisseden {len(bulunanlar)} tanesi filtreye takıldı._"
+
+    print("Analiz bitti, mesaj gönderiliyor...")
+    mesaj_gonder(rapor)
 
 if __name__ == "__main__":
-    analyze_and_report()
+    main()
