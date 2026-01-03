@@ -1,0 +1,22 @@
+name: Borsa Botunu Calistir
+
+on:
+  workflow_dispatch: # Manuel buton
+
+jobs:
+  baslat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodlari Cek
+        uses: actions/checkout@v3
+
+      - name: Python Kur
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Kutuphaneleri Yukle
+        run: pip install yfinance requests
+
+      - name: Botu Calistir
+        run: python bot.py
