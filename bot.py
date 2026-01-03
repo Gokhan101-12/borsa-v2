@@ -2,9 +2,9 @@ import yfinance as yf
 import requests
 
 # --- BURAYI DOLDUR (TIRNAK İÇİNDE KALSIN) ---
-TOKEN = 8201264694: AAG_E7j_RvaCCX@WlMokf×gTQ
-VpNvBmchYc
-ID = 1123565558
+TOKEN = 8201264694: "AAG_E7j_RvaCCX@WlMokf×gTQ
+VpNvBmchYc"
+ID = "1123565558"
 # -------------------------------------------
 
 def mesaj_gonder(text):
