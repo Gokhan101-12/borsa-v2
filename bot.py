@@ -2,7 +2,7 @@ import yfinance as yf
 import requests
 
 # --- BURAYI DOLDUR (TIRNAK İÇİNDE KALSIN) ---
-TOKEN = 8201264694: "AAG_E7j_RvaCCX@WlMokf×gTQ
+TOKEN = "8201264694:AAG_E7j_RvaCCX@WlMokf×gTQ
 VpNvBmchYc"
 ID = "1123565558"
 # -------------------------------------------
