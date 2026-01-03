@@ -1,7 +1,10 @@
-name: Borsa Botunu Calistir
+name: Otomatik Borsa Botu
 
 on:
-  workflow_dispatch: # Manuel buton
+  schedule:
+    # Hafta içi (Pzt-Cuma) UTC 15:30 (TR Saatiyle 18:30)
+    - cron: '30 15 * * 1-5'
+  workflow_dispatch: # Manuel buton da kalsın, canın isterse basarsın
 
 jobs:
   baslat:
@@ -13,7 +16,7 @@ jobs:
       - name: Python Kur
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: '3.11' # Guncel surum
 
       - name: Kutuphaneleri Yukle
         run: pip install yfinance requests
