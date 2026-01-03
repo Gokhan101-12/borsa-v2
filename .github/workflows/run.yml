@@ -1,14 +1,16 @@
-name: Otomatik Borsa Botu
+name: BIST 600 Tarama Botu
 
 on:
   schedule:
-    # Hafta içi (Pzt-Cuma) UTC 15:30 (TR Saatiyle 18:30)
+    # Hafta içi her gün 18:30 (Piyasa kapanışı sonrası)
     - cron: '30 15 * * 1-5'
-  workflow_dispatch: # Manuel buton da kalsın, canın isterse basarsın
+  workflow_dispatch:
 
 jobs:
-  baslat:
+  taramayi_baslat:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # Süreyi 15 dakikaya çıkardık (Yarıda kesilmesin)
+    
     steps:
       - name: Kodlari Cek
         uses: actions/checkout@v3
@@ -16,10 +18,10 @@ jobs:
       - name: Python Kur
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11' # Guncel surum
+          python-version: '3.11'
 
       - name: Kutuphaneleri Yukle
-        run: pip install yfinance requests
+        run: pip install yfinance pandas requests
 
       - name: Botu Calistir
         run: python bot.py
